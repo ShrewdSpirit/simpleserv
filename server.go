@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type LogType string
@@ -29,6 +30,9 @@ type SimpleServe struct {
 func (s *SimpleServe) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	path := filepath.Join(s.WWWRoot, strings.Trim(req.URL.Path, "/"))
 
+	pretyStr := req.URL.Query().Get("prety")
+	prety, _ := strconv.ParseBool(pretyStr)
+
 	stat, err := os.Stat(path)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -39,7 +43,7 @@ func (s *SimpleServe) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	if stat.IsDir() {
 		ignoreIndexStr := req.URL.Query().Get("ignore-index")
 		ignoreIndex, _ := strconv.ParseBool(ignoreIndexStr)
-		if err := s.serveDir(w, path, ignoreIndex); err != nil {
+		if err := s.serveDir(w, path, ignoreIndex, prety); err != nil {
 			s.log(nil, req, LogTypeErr, err.Error())
 		}
 
@@ -52,7 +56,7 @@ func (s *SimpleServe) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func (s *SimpleServe) serveDir(w http.ResponseWriter, path string, ignoreIndex bool) error {
+func (s *SimpleServe) serveDir(w http.ResponseWriter, path string, ignoreIndex, prety bool) error {
 	if !ignoreIndex {
 		indexPath := filepath.Join(path, "index.html")
 		if stat, err := os.Stat(indexPath); !os.IsNotExist(err) && !stat.IsDir() {
@@ -65,18 +69,39 @@ func (s *SimpleServe) serveDir(w http.ResponseWriter, path string, ignoreIndex b
 		return nil
 	}
 
-	ls, err := ioutil.ReadDir(path)
+	files, err := ioutil.ReadDir(path)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return err
 	}
 
-	responseBytes, err := json.Marshal(ls)
+	ls := make([]struct {
+		Name    string
+		Size    int64
+		Mode    os.FileMode
+		ModTime time.Time
+		IsDir   bool
+	}, len(files))
+	for i, fileInfo := range files {
+		ls[i].Name = fileInfo.Name()
+		ls[i].Size = fileInfo.Size()
+		ls[i].Mode = fileInfo.Mode()
+		ls[i].ModTime = fileInfo.ModTime()
+		ls[i].IsDir = fileInfo.IsDir()
+	}
+
+	var responseBytes []byte
+	if prety {
+		responseBytes, err = json.MarshalIndent(ls, "", "  ")
+	} else {
+		responseBytes, err = json.Marshal(ls)
+	}
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return err
 	}
 
+	w.Header().Set("Content-Type", "application/json")
 	w.Write(responseBytes)
 
 	return nil
@@ -90,7 +115,7 @@ func (s *SimpleServe) serveFile(w http.ResponseWriter, path string, length int64
 	}
 	defer file.Close()
 
-	w.Header().Set("Content-Type", mime.TypeByExtension(path))
+	w.Header().Set("Content-Type", mime.TypeByExtension(filepath.Ext(path)))
 	w.Header().Set("Content-Length", strconv.FormatInt(length, 10))
 
 	if _, err := io.Copy(w, file); err != nil {
