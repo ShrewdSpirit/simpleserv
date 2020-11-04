@@ -24,7 +24,4 @@ ENV SERVE_DIR false
 
 COPY --from=builder /build/main /app/
 
-CMD ["./main",
-        "-port", "${SERVE_PORT}",
-        "-root", "${SERVE_PORT}",
-        "-servedir", "${SERVE_DIR}"]
+CMD ["./main", "-port", "$SERVE_PORT", "-root", "$SERVE_PORT", "-servedir", "$SERVE_DIR"]
