@@ -18,10 +18,13 @@ FROM debian:buster
 
 WORKDIR /app
 
-ENV SERVE_DIR /wwwroot
+ENV SERVE_ROOT /wwwroot
 ENV SERVE_PORT 6969
+ENV SERVE_DIR false
 
 COPY --from=builder /build/main /app/
 
-CMD ["./main"]
-
+CMD ["./main",
+        "-port", "${SERVE_PORT}",
+        "-root", "${SERVE_PORT}",
+        "-servedir", "${SERVE_DIR}"]
