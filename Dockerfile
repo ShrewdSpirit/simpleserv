@@ -24,4 +24,4 @@ ENV SERVE_DIR false
 
 COPY --from=builder /build/main /app/
 
-CMD /app/main -port $SERVE_PORT -root $SERVE_PORT -servedir $SERVE_DIR
+CMD /app/main -port $SERVE_PORT -root $SERVE_ROOT -servedir $SERVE_DIR
