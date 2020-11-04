@@ -31,26 +31,16 @@ func (s *SimpleServe) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	stat, err := os.Stat(path)
 	if err != nil {
-		if os.IsNotExist(err) {
-			if err := s.serveIndex(w, path); err != nil {
-				s.log(nil, req, LogTypeErr, err.Error())
-			}
-
-			return
-		}
-
 		w.WriteHeader(http.StatusInternalServerError)
 		s.log(nil, req, LogTypeErr, err.Error())
 		return
 	}
 
 	if stat.IsDir() {
-		if !s.ServeDir {
-			w.WriteHeader(http.StatusUnauthorized)
-		} else {
-			if err := s.serveDir(w, path); err != nil {
-				s.log(nil, req, LogTypeErr, err.Error())
-			}
+		ignoreIndexStr := req.URL.Query().Get("ignore-index")
+		ignoreIndex, _ := strconv.ParseBool(ignoreIndexStr)
+		if err := s.serveDir(w, path, ignoreIndex); err != nil {
+			s.log(nil, req, LogTypeErr, err.Error())
 		}
 
 		return
@@ -62,18 +52,19 @@ func (s *SimpleServe) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func (s *SimpleServe) serveIndex(w http.ResponseWriter, path string) error {
-	path = filepath.Join(path, "index.html")
-	stat, err := os.Stat(path)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		return err
+func (s *SimpleServe) serveDir(w http.ResponseWriter, path string, ignoreIndex bool) error {
+	if !ignoreIndex {
+		indexPath := filepath.Join(path, "index.html")
+		if stat, err := os.Stat(indexPath); !os.IsNotExist(err) && !stat.IsDir() {
+			return s.serveFile(w, indexPath, stat.Size())
+		}
 	}
 
-	return s.serveFile(w, path, stat.Size())
-}
+	if !s.ServeDir {
+		w.WriteHeader(http.StatusUnauthorized)
+		return nil
+	}
 
-func (s *SimpleServe) serveDir(w http.ResponseWriter, path string) error {
 	ls, err := ioutil.ReadDir(path)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
