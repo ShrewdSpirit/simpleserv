@@ -12,7 +12,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 )
 
 type LogType string
@@ -43,7 +42,7 @@ func (s *SimpleServe) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	if stat.IsDir() {
 		ignoreIndexStr := req.URL.Query().Get("ignore-index")
 		ignoreIndex, _ := strconv.ParseBool(ignoreIndexStr)
-		if err := s.serveDir(w, path, ignoreIndex, prety); err != nil {
+		if err := s.serveDir(w, req, path, ignoreIndex, prety); err != nil {
 			s.log(nil, req, LogTypeErr, err.Error())
 		}
 
@@ -56,7 +55,7 @@ func (s *SimpleServe) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func (s *SimpleServe) serveDir(w http.ResponseWriter, path string, ignoreIndex, prety bool) error {
+func (s *SimpleServe) serveDir(w http.ResponseWriter, req *http.Request, path string, ignoreIndex, prety bool) error {
 	if !ignoreIndex {
 		indexPath := filepath.Join(path, "index.html")
 		if stat, err := os.Stat(indexPath); !os.IsNotExist(err) && !stat.IsDir() {
@@ -78,16 +77,21 @@ func (s *SimpleServe) serveDir(w http.ResponseWriter, path string, ignoreIndex, 
 	ls := make([]struct {
 		Name    string
 		Size    int64
-		Mode    os.FileMode
-		ModTime time.Time
+		ModTime int64
 		IsDir   bool
+		Link    string
 	}, len(files))
 	for i, fileInfo := range files {
 		ls[i].Name = fileInfo.Name()
 		ls[i].Size = fileInfo.Size()
-		ls[i].Mode = fileInfo.Mode()
-		ls[i].ModTime = fileInfo.ModTime()
+		ls[i].ModTime = fileInfo.ModTime().UnixNano()
 		ls[i].IsDir = fileInfo.IsDir()
+
+		scheme := req.URL.Scheme
+		if scheme == "" {
+			scheme = "http"
+		}
+		ls[i].Link = fmt.Sprintf("%s://%s%s", scheme, req.Host, filepath.Join(req.URL.Path, fileInfo.Name()))
 	}
 
 	var responseBytes []byte
