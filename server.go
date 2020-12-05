@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -12,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type LogType string
@@ -22,12 +22,28 @@ const (
 )
 
 type SimpleServe struct {
-	WWWRoot  string
-	ServeDir bool
+	root     string
+	allowDir bool
+	cache    *ResponseCache
+}
+
+func NewSimpleServ(wwwroot string, servedir bool, cachettl time.Duration, cachesize, maxcacheitemsize int) (s *SimpleServe, err error) {
+	s = &SimpleServe{
+		root:     wwwroot,
+		allowDir: servedir,
+	}
+
+	s.cache, err = NewResponseCache(cachettl, cachesize, maxcacheitemsize)
+
+	return
 }
 
 func (s *SimpleServe) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	path := filepath.Join(s.WWWRoot, strings.Trim(req.URL.Path, "/"))
+	if s.cache.ServeCacheForRequest(w, req) {
+		return
+	}
+
+	path := filepath.Join(s.root, strings.Trim(req.URL.Path, "/"))
 
 	pretyStr := req.URL.Query().Get("prety")
 	prety, _ := strconv.ParseBool(pretyStr)
@@ -49,7 +65,7 @@ func (s *SimpleServe) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	if err := s.serveFile(w, path, stat.Size()); err != nil {
+	if err := s.serveFile(w, req, path, stat.Size()); err != nil {
 		s.log(nil, req, LogTypeErr, err.Error())
 		return
 	}
@@ -59,11 +75,11 @@ func (s *SimpleServe) serveDir(w http.ResponseWriter, req *http.Request, path st
 	if !ignoreIndex {
 		indexPath := filepath.Join(path, "index.html")
 		if stat, err := os.Stat(indexPath); !os.IsNotExist(err) && !stat.IsDir() {
-			return s.serveFile(w, indexPath, stat.Size())
+			return s.serveFile(w, req, indexPath, stat.Size())
 		}
 	}
 
-	if !s.ServeDir {
+	if !s.allowDir {
 		w.WriteHeader(http.StatusUnauthorized)
 		return nil
 	}
@@ -107,11 +123,12 @@ func (s *SimpleServe) serveDir(w http.ResponseWriter, req *http.Request, path st
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(responseBytes)
+	go s.cache.SaveCacheForResponse(req, w.Header(), responseBytes)
 
 	return nil
 }
 
-func (s *SimpleServe) serveFile(w http.ResponseWriter, path string, length int64) error {
+func (s *SimpleServe) serveFile(w http.ResponseWriter, req *http.Request, path string, length int64) error {
 	file, err := os.Open(path)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -127,7 +144,18 @@ func (s *SimpleServe) serveFile(w http.ResponseWriter, path string, length int64
 		return err
 	}
 
+	go s.cacheFile(req, w.Header(), path)
+
 	return nil
+}
+
+func (s *SimpleServe) cacheFile(req *http.Request, resHeader http.Header, filePath string) {
+	body, err := ioutil.ReadFile(filePath)
+	if err != nil {
+		s.log(nil, req, LogTypeErr, fmt.Errorf("failed to read %s: %w", filePath, err).Error())
+	}
+
+	s.cache.SaveCacheForResponse(req, resHeader, body)
 }
 
 func (s *SimpleServe) log(to http.ResponseWriter, req *http.Request, logtype LogType, msg string) {
