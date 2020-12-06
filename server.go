@@ -27,7 +27,7 @@ type SimpleServe struct {
 	cache    *ResponseCache
 }
 
-func NewSimpleServ(wwwroot string, servedir bool, cachettl time.Duration, cachesize, maxcacheitemsize int) (s *SimpleServe, err error) {
+func NewSimpleServ(wwwroot string, servedir, compress bool, cachettl time.Duration, cachesize, maxcacheitemsize int) (s *SimpleServe, err error) {
 	s = &SimpleServe{
 		root:     wwwroot,
 		allowDir: servedir,

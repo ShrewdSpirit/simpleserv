@@ -8,17 +8,22 @@ import (
 	"os/signal"
 	"runtime"
 	"runtime/pprof"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 )
 
 func main() {
-	var port int
-	var wwwroot string
-	var servedir bool
-	var cachettl string
-	var cachesize int
-	var maxcacheitemsize int
+	var (
+		port             int
+		wwwroot          string
+		servedir         bool
+		cachettl         string
+		cachesize        string
+		maxcacheitemsize string
+		compress         bool
+	)
 
 	wd, err := os.Getwd()
 	exitError(err)
@@ -26,9 +31,10 @@ func main() {
 	flag.BoolVar(&servedir, "servedir", false, "Enable serving directories")
 	flag.IntVar(&port, "port", 6969, "listen port")
 	flag.StringVar(&wwwroot, "root", wd, "serve root directory (defaults to current directory)")
-	flag.StringVar(&cachettl, "cache-ttl", "10s", "cache time to live (default 0)")
-	flag.IntVar(&cachesize, "cache-size", 1024*1024*50, "cache size in bytes (default 52428800)")
-	flag.IntVar(&maxcacheitemsize, "max-cache-item-size", 1024*1024*5, "max size of item to put in cache in bytes (default 5242880)")
+	flag.StringVar(&cachettl, "cache-ttl", "5s", "cache time to live (default 5s)")
+	flag.StringVar(&cachesize, "cache-size", "1gb", "cache size in bytes (default 1gb)")
+	flag.StringVar(&maxcacheitemsize, "max-cache-item-size", "5mb", "max size of item to put in cache in bytes (default 5mb)")
+	flag.BoolVar(&compress, "compress", false, "enable compression (default false)")
 	flag.Parse()
 
 	cpuProfFile := os.Getenv("CPUPROF")
@@ -56,7 +62,7 @@ func main() {
 		fmt.Printf("serving directory %s\n", wwwroot)
 		fmt.Printf("listening on :%d\n", port)
 
-		s, err := NewSimpleServ(wwwroot, servedir, cttl, cachesize, maxcacheitemsize)
+		s, err := NewSimpleServ(wwwroot, servedir, compress, cttl, parseKbMbGb(cachesize), parseKbMbGb(maxcacheitemsize))
 		exitError(err)
 
 		if err = http.ListenAndServe(fmt.Sprintf(":%d", port), s); err != nil {
@@ -84,6 +90,25 @@ func main() {
 			return
 		}
 	}
+}
+
+func parseKbMbGb(val string) int {
+	mul := 1
+
+	switch {
+	case strings.HasSuffix(val, "kb"):
+		val = strings.TrimSuffix(val, "kb")
+		mul = 1024
+	case strings.HasSuffix(val, "mb"):
+		val = strings.TrimSuffix(val, "mb")
+		mul = 1024 * 1024
+	case strings.HasSuffix(val, "gb"):
+		val = strings.TrimSuffix(val, "gb")
+		mul = 1024 * 1024 * 1024
+	}
+
+	sz, _ := strconv.ParseInt(val, 10, 32)
+	return int(sz) * mul
 }
 
 func exitError(err error) {
